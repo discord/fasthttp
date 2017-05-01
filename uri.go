@@ -277,7 +277,7 @@ func (u *URI) parse(host, uri []byte, h *RequestHeader) {
 func normalizePath(dst, src []byte) []byte {
 	dst = dst[:0]
 	dst = addLeadingSlash(dst, src)
-	dst = decodeArgAppend(dst, src, false)
+	dst = append(dst, src...)
 
 	// remove duplicate slashes
 	b := dst
@@ -336,7 +336,7 @@ func normalizePath(dst, src []byte) []byte {
 
 // RequestURI returns RequestURI - i.e. URI without Scheme and Host.
 func (u *URI) RequestURI() []byte {
-	dst := appendQuotedPath(u.requestURI[:0], u.Path())
+	dst := append(u.requestURI[:0], u.Path()...)
 	if u.queryArgs.Len() > 0 {
 		dst = append(dst, '?')
 		dst = u.queryArgs.AppendBytes(dst)
@@ -446,7 +446,7 @@ func (u *URI) updateBytes(newURI, buf []byte) []byte {
 			panic("BUG: path must contain at least one slash")
 		}
 		buf = u.appendSchemeHost(buf[:0])
-		buf = appendQuotedPath(buf, path[:n+1])
+		buf = append(buf, path[:n+1]...)
 		buf = append(buf, newURI...)
 		u.Parse(nil, buf)
 		return buf
