@@ -176,6 +176,11 @@ type Client struct {
 	// DefaultMaxConnsPerHost is used if not set.
 	MaxConnsPerHost int
 
+	// Keep-alive connections are closed after this duration.
+	//
+	// By default connection duration is unlimited.
+	MaxConnDuration time.Duration
+
 	// Idle keep-alive connections are closed after this duration.
 	//
 	// By default idle connections are closed
@@ -390,6 +395,7 @@ func (c *Client) Do(req *Request, resp *Response) error {
 			IsTLS:                         isTLS,
 			TLSConfig:                     c.TLSConfig,
 			MaxConns:                      c.MaxConnsPerHost,
+			MaxConnDuration:               c.MaxConnDuration,
 			MaxIdleConnDuration:           c.MaxIdleConnDuration,
 			ReadBufferSize:                c.ReadBufferSize,
 			WriteBufferSize:               c.WriteBufferSize,
