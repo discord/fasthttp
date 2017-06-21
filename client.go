@@ -216,6 +216,10 @@ type Client struct {
 	// By default response body size is unlimited.
 	MaxResponseBodySize int
 
+	// MaxFollowRedirects sets the number of times .Do() should
+	// follow redirects
+	MaxFollowRedirects int
+
 	// Header names are passed as-is without normalization
 	// if this option is set.
 	//
@@ -239,12 +243,15 @@ type Client struct {
 	ms    map[string]*HostClient
 }
 
+const maxRedirectsCount = 16
+
 // Get appends url contents to dst and returns it as body.
 //
 // The function follows redirects. Use Do* for manually handling redirects.
 //
 // New body buffer is allocated if dst is nil.
 func (c *Client) Get(dst []byte, url string) (statusCode int, body []byte, err error) {
+	c.MaxFollowRedirects = maxRedirectsCount
 	return clientGetURL(dst, url, c)
 }
 
@@ -257,6 +264,7 @@ func (c *Client) Get(dst []byte, url string) (statusCode int, body []byte, err e
 // ErrTimeout error is returned if url contents couldn't be fetched
 // during the given timeout.
 func (c *Client) GetTimeout(dst []byte, url string, timeout time.Duration) (statusCode int, body []byte, err error) {
+	c.MaxFollowRedirects = maxRedirectsCount
 	return clientGetURLTimeout(dst, url, timeout, c)
 }
 
@@ -269,6 +277,7 @@ func (c *Client) GetTimeout(dst []byte, url string, timeout time.Duration) (stat
 // ErrTimeout error is returned if url contents couldn't be fetched
 // until the given deadline.
 func (c *Client) GetDeadline(dst []byte, url string, deadline time.Time) (statusCode int, body []byte, err error) {
+	c.MaxFollowRedirects = maxRedirectsCount
 	return clientGetURLDeadline(dst, url, deadline, c)
 }
 
@@ -282,6 +291,7 @@ func (c *Client) GetDeadline(dst []byte, url string, deadline time.Time) (status
 //
 // Empty POST body is sent if postArgs is nil.
 func (c *Client) Post(dst []byte, url string, postArgs *Args) (statusCode int, body []byte, err error) {
+	c.MaxFollowRedirects = maxRedirectsCount
 	return clientPostURL(dst, url, postArgs, c)
 }
 
@@ -370,7 +380,7 @@ func (c *Client) Do(req *Request, resp *Response) error {
 		}
 
 		redirectsCount++
-		if redirectsCount > req.MaxFollowRedirects {
+		if redirectsCount > c.MaxFollowRedirects {
 			err = errTooManyRedirects
 			break
 		}
@@ -782,10 +792,7 @@ var (
 	errTooManyRedirects = errors.New("too many redirects detected when doing the request")
 )
 
-const maxRedirectsCount = 16
-
 func doRequestFollowRedirects(req *Request, dst []byte, url string, c clientDoer) (statusCode int, body []byte, err error) {
-	req.MaxFollowRedirects = maxRedirectsCount
 	req.SetRequestURI(url)
 
 	resp := AcquireResponse()
