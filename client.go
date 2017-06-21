@@ -380,6 +380,7 @@ func (c *Client) Do(req *Request, resp *Response) error {
 			break
 		}
 		url = getRedirectURL(url, location)
+		resp.Header.VisitAllCookie(req.Header.SetCookieBytesKV)
 	}
 
 	return err
