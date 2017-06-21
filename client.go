@@ -296,8 +296,6 @@ func (c *Client) Post(dst []byte, url string, postArgs *Args) (statusCode int, b
 //   - from RequestURI if it contains full url with scheme and host;
 //   - from Host header otherwise.
 //
-// The function doesn't follow redirects. Use Get* for following redirects.
-//
 // Response is ignored if resp is nil.
 //
 // ErrTimeout is returned if the response wasn't returned during
@@ -322,8 +320,6 @@ func (c *Client) DoTimeout(req *Request, resp *Response, timeout time.Duration) 
 //
 //   - from RequestURI if it contains full url with scheme and host;
 //   - from Host header otherwise.
-//
-// The function doesn't follow redirects. Use Get* for following redirects.
 //
 // Response is ignored if resp is nil.
 //
@@ -350,8 +346,6 @@ func (c *Client) DoDeadline(req *Request, resp *Response, deadline time.Time) er
 //   - from Host header otherwise.
 //
 // Response is ignored if resp is nil.
-//
-// The function doesn't follow redirects. Use Get* for following redirects.
 //
 // ErrNoFreeConns is returned if all Client.MaxConnsPerHost connections
 // to the requested host are busy.
