@@ -45,6 +45,8 @@ type Request struct {
 
 	isTLS bool
 
+	// MaxFollowRedirects sets the number of times .Do() should
+	// follow redirects
 	MaxFollowRedirects int
 }
 
