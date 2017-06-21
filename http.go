@@ -44,6 +44,8 @@ type Request struct {
 	keepBodyBuffer bool
 
 	isTLS bool
+
+	MaxFollowRedirects int
 }
 
 // Response represents HTTP response.
@@ -816,6 +818,7 @@ func readMultipartForm(r io.Reader, boundary string, size, maxInMemoryFileSize i
 // Reset clears request contents.
 func (req *Request) Reset() {
 	req.Header.Reset()
+	req.MaxFollowRedirects = 0
 	req.resetSkipHeader()
 }
 

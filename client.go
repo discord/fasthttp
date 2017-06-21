@@ -359,6 +359,39 @@ func (c *Client) DoDeadline(req *Request, resp *Response, deadline time.Time) er
 // It is recommended obtaining req and resp via AcquireRequest
 // and AcquireResponse in performance-critical code.
 func (c *Client) Do(req *Request, resp *Response) error {
+	var err error
+	redirectsCount := 0
+	url := string(req.RequestURI())
+	for {
+		req.parsedURI = false
+		req.Header.host = req.Header.host[:0]
+		req.SetRequestURI(url)
+
+		if err = c.do(req, resp); err != nil {
+			break
+		}
+		statusCode := resp.Header.StatusCode()
+		if statusCode != StatusMovedPermanently && statusCode != StatusFound && statusCode != StatusSeeOther {
+			break
+		}
+
+		redirectsCount++
+		if redirectsCount > req.MaxFollowRedirects {
+			err = errTooManyRedirects
+			break
+		}
+		location := resp.Header.peek(strLocation)
+		if len(location) == 0 {
+			err = errMissingLocation
+			break
+		}
+		url = getRedirectURL(url, location)
+	}
+
+	return err
+}
+
+func (c *Client) do(req *Request, resp *Response) error {
 	uri := req.URI()
 	host := uri.Host()
 
@@ -757,42 +790,21 @@ var (
 const maxRedirectsCount = 16
 
 func doRequestFollowRedirects(req *Request, dst []byte, url string, c clientDoer) (statusCode int, body []byte, err error) {
+	req.MaxFollowRedirects = maxRedirectsCount
+	req.SetRequestURI(url)
+
 	resp := AcquireResponse()
 	bodyBuf := resp.bodyBuffer()
 	resp.keepBodyBuffer = true
 	oldBody := bodyBuf.B
 	bodyBuf.B = dst
 
-	redirectsCount := 0
-	for {
-		req.parsedURI = false
-		req.Header.host = req.Header.host[:0]
-		req.SetRequestURI(url)
-
-		if err = c.Do(req, resp); err != nil {
-			break
-		}
-		statusCode = resp.Header.StatusCode()
-		if statusCode != StatusMovedPermanently && statusCode != StatusFound && statusCode != StatusSeeOther {
-			break
-		}
-
-		redirectsCount++
-		if redirectsCount > maxRedirectsCount {
-			err = errTooManyRedirects
-			break
-		}
-		location := resp.Header.peek(strLocation)
-		if len(location) == 0 {
-			err = errMissingLocation
-			break
-		}
-		url = getRedirectURL(url, location)
-	}
+	err = c.Do(req, resp)
 
 	body = bodyBuf.B
 	bodyBuf.B = oldBody
 	resp.keepBodyBuffer = false
+	statusCode = resp.Header.StatusCode()
 	ReleaseResponse(resp)
 
 	return statusCode, body, err
