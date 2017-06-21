@@ -1530,7 +1530,7 @@ func TestRequestURI(t *testing.T) {
 	host := "foobar.com"
 	requestURI := "/aaa/bb+b%20d?ccc=ddd&qqq#1334dfds&=d"
 	expectedPathOriginal := "/aaa/bb+b%20d"
-	expectedPath := "/aaa/bb+b d"
+	expectedPath := "/aaa/bb+b%20d"
 	expectedQueryString := "ccc=ddd&qqq"
 	expectedHash := "1334dfds&=d"
 
