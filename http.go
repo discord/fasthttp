@@ -379,6 +379,38 @@ func inflateData(p []byte) ([]byte, error) {
 	return bb.B, nil
 }
 
+// BodyDecompressed returns decompressed body data.
+//
+// This method checks the Content-Encoding header on the
+// request to see if it matches 'gzip' or 'deflate' and
+// decompresses it if so. Otherwise it returns the
+// original body
+func (req *Request) BodyDecompressed() ([]byte, error) {
+	contentEncoding := req.Header.Peek("Content-Encoding")
+	if bytes.Equal(contentEncoding, strGzip) {
+		return req.BodyGunzip()
+	} else if bytes.Equal(contentEncoding, strDeflate) {
+		return req.BodyInflate()
+	}
+	return req.Body(), nil
+}
+
+// BodyDecompressed returns decompressed body data.
+//
+// This method checks the Content-Encoding header on the
+// response to see if it matches 'gzip' or 'deflate' and
+// decompresses it if so. Otherwise it returns the
+// original body
+func (resp *Response) BodyDecompressed() ([]byte, error) {
+	contentEncoding := resp.Header.Peek("Content-Encoding")
+	if bytes.Equal(contentEncoding, strGzip) {
+		return resp.BodyGunzip()
+	} else if bytes.Equal(contentEncoding, strDeflate) {
+		return resp.BodyInflate()
+	}
+	return resp.Body(), nil
+}
+
 // BodyWriteTo writes request body to w.
 func (req *Request) BodyWriteTo(w io.Writer) error {
 	if req.bodyStream != nil {
