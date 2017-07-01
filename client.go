@@ -824,6 +824,7 @@ func getRedirectURL(baseURL string, location []byte) string {
 	u := AcquireURI()
 	u.Update(baseURL)
 	u.UpdateBytes(location)
+	u.SetHashBytes(nil)
 	redirectURL := u.String()
 	ReleaseURI(u)
 	return redirectURL
