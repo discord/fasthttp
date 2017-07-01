@@ -44,6 +44,8 @@ type Request struct {
 	keepBodyBuffer bool
 
 	isTLS bool
+
+	DisableFollowRedirects bool
 }
 
 // Response represents HTTP response.
@@ -629,6 +631,7 @@ func (req *Request) copyToSkipBody(dst *Request) {
 
 	req.uri.CopyTo(&dst.uri)
 	dst.parsedURI = req.parsedURI
+	dst.DisableFollowRedirects = req.DisableFollowRedirects
 
 	req.postArgs.CopyTo(&dst.postArgs)
 	dst.parsedPostArgs = req.parsedPostArgs
@@ -816,6 +819,7 @@ func readMultipartForm(r io.Reader, boundary string, size, maxInMemoryFileSize i
 // Reset clears request contents.
 func (req *Request) Reset() {
 	req.Header.Reset()
+	req.DisableFollowRedirects = false
 	req.resetSkipHeader()
 }
 

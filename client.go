@@ -363,6 +363,10 @@ func (c *Client) DoDeadline(req *Request, resp *Response, deadline time.Time) er
 // It is recommended obtaining req and resp via AcquireRequest
 // and AcquireResponse in performance-critical code.
 func (c *Client) Do(req *Request, resp *Response) error {
+	if req.DisableFollowRedirects {
+		return c.do(req, resp)
+	}
+
 	var err error
 	redirectsCount := 0
 	url := string(req.RequestURI())
@@ -374,6 +378,7 @@ func (c *Client) Do(req *Request, resp *Response) error {
 		if err = c.do(req, resp); err != nil {
 			break
 		}
+
 		statusCode := resp.Header.StatusCode()
 		if statusCode != StatusMovedPermanently && statusCode != StatusFound && statusCode != StatusSeeOther {
 			break
@@ -384,13 +389,16 @@ func (c *Client) Do(req *Request, resp *Response) error {
 			err = errTooManyRedirects
 			break
 		}
+
 		location := resp.Header.peek(strLocation)
 		if len(location) == 0 {
 			err = errMissingLocation
 			break
 		}
-		url = getRedirectURL(url, location)
+
 		resp.Header.VisitAllCookie(req.Header.SetCookieBytesKV)
+
+		url = getRedirectURL(url, location)
 	}
 
 	return err
