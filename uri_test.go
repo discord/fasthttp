@@ -80,7 +80,7 @@ func testURILastPathSegment(t *testing.T, path, expectedSegment string) {
 func TestURIPathEscape(t *testing.T) {
 	testURIPathEscape(t, "/foo/bar", "/foo/bar")
 	testURIPathEscape(t, "/f_o-o=b:ar,b.c&q", "/f_o-o=b:ar,b.c&q")
-	testURIPathEscape(t, "/aa?bb.тест~qq", "/aa%3Fbb.%D1%82%D0%B5%D1%81%D1%82~qq")
+	testURIPathEscape(t, "/aa?bb.тест~qq", "/aa?bb.тест~qq")
 }
 
 func testURIPathEscape(t *testing.T, path, expectedRequestURI string) {
@@ -106,7 +106,7 @@ func TestURIUpdate(t *testing.T) {
 	testURIUpdate(t, "http://foo.bar/baz/xxx.html?aaa=22#aaa", "bb.html?xx=12#pp", "http://foo.bar/baz/bb.html?xx=12#pp")
 	testURIUpdate(t, "http://xx/a/b/c/d", "../qwe/p?zx=34", "http://xx/a/b/qwe/p?zx=34")
 	testURIUpdate(t, "https://qqq/aaa.html?foo=bar", "?baz=434&aaa#xcv", "https://qqq/aaa.html?baz=434&aaa#xcv")
-	testURIUpdate(t, "http://foo.bar/baz", "~a/%20b=c,тест?йцу=ке", "http://foo.bar/~a/%20b=c,%D1%82%D0%B5%D1%81%D1%82?йцу=ке")
+	testURIUpdate(t, "http://foo.bar/baz", "~a/%20b=c,тест?йцу=ке", "http://foo.bar/~a/%20b=c,тест?йцу=ке")
 	testURIUpdate(t, "http://foo.bar/baz", "/qwe#fragment", "http://foo.bar/qwe#fragment")
 	testURIUpdate(t, "http://foobar/baz/xxx", "aaa.html#bb?cc=dd&ee=dfd", "http://foobar/baz/aaa.html#bb?cc=dd&ee=dfd")
 
@@ -141,7 +141,7 @@ func TestURIPathNormalize(t *testing.T) {
 	testURIPathNormalize(t, &u, "/abc//de///fg////", "/abc/de/fg/")
 
 	// encoded slashes
-	testURIPathNormalize(t, &u, "/xxxx%2fyyy%2f%2F%2F", "/xxxx/yyy/")
+	testURIPathNormalize(t, &u, "/xxxx%2fyyy%2f%2F%2F", "/xxxx%2fyyy%2f%2F%2F")
 
 	// dotdot
 	testURIPathNormalize(t, &u, "/aaa/..", "/")
@@ -161,7 +161,7 @@ func TestURIPathNormalize(t *testing.T) {
 	testURIPathNormalize(t, &u, "/../../../../../../", "/")
 
 	// encoded dotdots
-	testURIPathNormalize(t, &u, "/aaa%2Fbbb%2F%2E.%2Fxxx", "/aaa/xxx")
+	testURIPathNormalize(t, &u, "/aaa%2Fbbb%2F%2E.%2Fxxx", "/aaa%2Fbbb%2F%2E.%2Fxxx")
 
 	// double slash with dotdots
 	testURIPathNormalize(t, &u, "/aaa////..//b", "/b")
@@ -201,7 +201,7 @@ func TestURIFullURI(t *testing.T) {
 	// non-empty args and non-ASCII path
 	args.Set("foo", "bar")
 	args.Set("xxx", "йух")
-	testURIFullURI(t, "", "xxx.com", "/тест123", "2er", &args, "http://xxx.com/%D1%82%D0%B5%D1%81%D1%82123?foo=bar&xxx=%D0%B9%D1%83%D1%85#2er")
+	testURIFullURI(t, "", "xxx.com", "/тест123", "2er", &args, "http://xxx.com/тест123?foo=bar&xxx=%D0%B9%D1%83%D1%85#2er")
 
 	// test with empty args and non-empty query string
 	var u URI
@@ -272,7 +272,7 @@ func TestURIParse(t *testing.T) {
 
 	// encoded path
 	testURIParse(t, &u, "aa.com", "/Test%20+%20%D0%BF%D1%80%D0%B8?asdf=%20%20&s=12#sdf",
-		"http://aa.com/Test%20%2B%20%D0%BF%D1%80%D0%B8?asdf=%20%20&s=12#sdf", "aa.com", "/Test + при", "/Test%20+%20%D0%BF%D1%80%D0%B8", "asdf=%20%20&s=12", "sdf")
+		"http://aa.com/Test%20+%20%D0%BF%D1%80%D0%B8?asdf=%20%20&s=12#sdf", "aa.com", "/Test%20+%20%D0%BF%D1%80%D0%B8", "/Test%20+%20%D0%BF%D1%80%D0%B8", "asdf=%20%20&s=12", "sdf")
 
 	// host in uppercase
 	testURIParse(t, &u, "FOObar.COM", "/bC?De=F#Gh",
@@ -282,7 +282,7 @@ func TestURIParse(t *testing.T) {
 	testURIParse(t, &u, "xxx.com", "http://aaa.com/foo/bar?baz=aaa#ddd",
 		"http://aaa.com/foo/bar?baz=aaa#ddd", "aaa.com", "/foo/bar", "/foo/bar", "baz=aaa", "ddd")
 	testURIParse(t, &u, "xxx.com", "https://ab.com/f/b%20r?baz=aaa#ddd",
-		"https://ab.com/f/b%20r?baz=aaa#ddd", "ab.com", "/f/b r", "/f/b%20r", "baz=aaa", "ddd")
+		"https://ab.com/f/b%20r?baz=aaa#ddd", "ab.com", "/f/b%20r", "/f/b%20r", "baz=aaa", "ddd")
 
 	// no slash after hostname in uri
 	testURIParse(t, &u, "aaa.com", "http://google.com",
