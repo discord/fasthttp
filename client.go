@@ -375,7 +375,8 @@ func (c *Client) Do(req *Request, resp *Response) error {
 		req.Header.host = req.Header.host[:0]
 		req.SetRequestURI(url)
 
-		if err = c.do(req, resp); err != nil {
+		err = c.do(req, resp)
+		if err != nil {
 			break
 		}
 
@@ -396,7 +397,15 @@ func (c *Client) Do(req *Request, resp *Response) error {
 			break
 		}
 
-		resp.Header.VisitAllCookie(req.Header.SetCookieBytesKV)
+		resp.Header.VisitAllCookie(func(key, value []byte) {
+			c := AcquireCookie()
+			c.SetKeyBytes(key)
+			c.SetValueBytes(value)
+			if c.Expire().After(time.Now()) {
+				req.Header.SetCookie(b2s(key), b2s(value))
+			}
+			ReleaseCookie(c)
+		})
 
 		url = getRedirectURL(url, location)
 	}
