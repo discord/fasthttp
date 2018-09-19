@@ -336,7 +336,7 @@ func normalizePath(dst, src []byte) []byte {
 
 // RequestURI returns RequestURI - i.e. URI without Scheme and Host.
 func (u *URI) RequestURI() []byte {
-	dst := appendQuotedPath(u.requestURI[:0], u.Path())
+	dst := append(u.requestURI[:0], u.PathOriginal()...)
 	if u.queryArgs.Len() > 0 {
 		dst = append(dst, '?')
 		dst = u.queryArgs.AppendBytes(dst)
