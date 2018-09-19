@@ -896,20 +896,6 @@ func TestResponseHeaderFirstByteReadEOF(t *testing.T) {
 	}
 }
 
-func TestRequestHeaderFirstByteReadEOF(t *testing.T) {
-	var h RequestHeader
-
-	r := &errorReader{fmt.Errorf("non-eof error")}
-	br := bufio.NewReader(r)
-	err := h.Read(br)
-	if err == nil {
-		t.Fatalf("expecting error")
-	}
-	if err != io.EOF {
-		t.Fatalf("unexpected error %s. Expecting %s", err, io.EOF)
-	}
-}
-
 type errorReader struct {
 	err error
 }
@@ -923,15 +909,6 @@ func TestRequestHeaderEmptyMethod(t *testing.T) {
 
 	if !h.IsGet() {
 		t.Fatalf("empty method must be equivalent to GET")
-	}
-	if h.IsPost() {
-		t.Fatalf("empty method cannot be POST")
-	}
-	if h.IsHead() {
-		t.Fatalf("empty method cannot be HEAD")
-	}
-	if h.IsDelete() {
-		t.Fatalf("empty method cannot be DELETE")
 	}
 }
 
@@ -1393,6 +1370,90 @@ func TestRequestHeaderCookie(t *testing.T) {
 	}
 }
 
+func TestResponseHeaderCookieIssue4(t *testing.T) {
+	var h ResponseHeader
+
+	c := AcquireCookie()
+	c.SetKey("foo")
+	c.SetValue("bar")
+	h.SetCookie(c)
+
+	if string(h.Peek("Set-Cookie")) != "foo=bar" {
+		t.Fatalf("Unexpected Set-Cookie header %q. Expected %q", h.Peek("Set-Cookie"), "foo=bar")
+	}
+	cookieSeen := false
+	h.VisitAll(func(key, value []byte) {
+		switch string(key) {
+		case "Set-Cookie":
+			cookieSeen = true
+		}
+	})
+	if !cookieSeen {
+		t.Fatalf("Set-Cookie not present in VisitAll")
+	}
+
+	c = AcquireCookie()
+	c.SetKey("foo")
+	h.Cookie(c)
+	if string(c.Value()) != "bar" {
+		t.Fatalf("Unexpected cookie value %q. Exepcted %q", c.Value(), "bar")
+	}
+
+	if string(h.Peek("Set-Cookie")) != "foo=bar" {
+		t.Fatalf("Unexpected Set-Cookie header %q. Expected %q", h.Peek("Set-Cookie"), "foo=bar")
+	}
+	cookieSeen = false
+	h.VisitAll(func(key, value []byte) {
+		switch string(key) {
+		case "Set-Cookie":
+			cookieSeen = true
+		}
+	})
+	if !cookieSeen {
+		t.Fatalf("Set-Cookie not present in VisitAll")
+	}
+}
+
+func TestRequestHeaderCookieIssue313(t *testing.T) {
+	var h RequestHeader
+	h.SetRequestURI("/")
+	h.Set("Host", "foobar.com")
+
+	h.SetCookie("foo", "bar")
+
+	if string(h.Peek("Cookie")) != "foo=bar" {
+		t.Fatalf("Unexpected Cookie header %q. Expected %q", h.Peek("Cookie"), "foo=bar")
+	}
+	cookieSeen := false
+	h.VisitAll(func(key, value []byte) {
+		switch string(key) {
+		case "Cookie":
+			cookieSeen = true
+		}
+	})
+	if !cookieSeen {
+		t.Fatalf("Cookie not present in VisitAll")
+	}
+
+	if string(h.Cookie("foo")) != "bar" {
+		t.Fatalf("Unexpected cookie value %q. Exepcted %q", h.Cookie("foo"), "bar")
+	}
+
+	if string(h.Peek("Cookie")) != "foo=bar" {
+		t.Fatalf("Unexpected Cookie header %q. Expected %q", h.Peek("Cookie"), "foo=bar")
+	}
+	cookieSeen = false
+	h.VisitAll(func(key, value []byte) {
+		switch string(key) {
+		case "Cookie":
+			cookieSeen = true
+		}
+	})
+	if !cookieSeen {
+		t.Fatalf("Cookie not present in VisitAll")
+	}
+}
+
 func TestRequestHeaderMethod(t *testing.T) {
 	// common http methods
 	testRequestHeaderMethod(t, "GET")
@@ -1792,6 +1853,12 @@ func TestResponseHeaderReadSuccess(t *testing.T) {
 	// no content-type
 	testResponseHeaderReadSuccess(t, h, "HTTP/1.1 400 OK\r\nContent-Length: 123\r\n\r\nfoiaaa",
 		400, 123, string(defaultContentType), "foiaaa")
+
+	// no content-type and no default
+	h.noDefaultContentType = true
+	testResponseHeaderReadSuccess(t, h, "HTTP/1.1 400 OK\r\nContent-Length: 123\r\n\r\nfoiaaa",
+		400, 123, "", "foiaaa")
+	h.noDefaultContentType = false
 
 	// no headers
 	testResponseHeaderReadSuccess(t, h, "HTTP/1.1 200 OK\r\n\r\naaaabbb",

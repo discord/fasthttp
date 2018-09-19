@@ -180,7 +180,7 @@ func (u *URI) Reset() {
 	u.parsedQueryArgs = false
 
 	// There is no need in u.fullURI = u.fullURI[:0], since full uri
-	// is calucalted on each call to FullURI().
+	// is calculated on each call to FullURI().
 
 	// There is no need in u.requestURI = u.requestURI[:0], since requestURI
 	// is calculated on each call to RequestURI().
@@ -277,7 +277,7 @@ func (u *URI) parse(host, uri []byte, h *RequestHeader) {
 func normalizePath(dst, src []byte) []byte {
 	dst = dst[:0]
 	dst = addLeadingSlash(dst, src)
-	dst = append(dst, src...)
+	dst = decodeArgAppendNoPlus(dst, src)
 
 	// remove duplicate slashes
 	b := dst
@@ -336,7 +336,7 @@ func normalizePath(dst, src []byte) []byte {
 
 // RequestURI returns RequestURI - i.e. URI without Scheme and Host.
 func (u *URI) RequestURI() []byte {
-	dst := append(u.requestURI[:0], u.Path()...)
+	dst := appendQuotedPath(u.requestURI[:0], u.Path())
 	if u.queryArgs.Len() > 0 {
 		dst = append(dst, '?')
 		dst = u.queryArgs.AppendBytes(dst)
@@ -446,7 +446,7 @@ func (u *URI) updateBytes(newURI, buf []byte) []byte {
 			panic("BUG: path must contain at least one slash")
 		}
 		buf = u.appendSchemeHost(buf[:0])
-		buf = append(buf, path[:n+1]...)
+		buf = appendQuotedPath(buf, path[:n+1])
 		buf = append(buf, newURI...)
 		u.Parse(nil, buf)
 		return buf
@@ -500,6 +500,11 @@ func splitHostURI(host, uri []byte) ([]byte, []byte, []byte) {
 	uri = uri[n:]
 	n = bytes.IndexByte(uri, '/')
 	if n < 0 {
+		// A hack for bogus urls like foobar.com?a=b without
+		// slash after host.
+		if n = bytes.IndexByte(uri, '?'); n >= 0 {
+			return scheme, uri[:n], uri[n:]
+		}
 		return scheme, uri, strSlash
 	}
 	return scheme, uri[:n], uri[n:]

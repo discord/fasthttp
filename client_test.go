@@ -1,6 +1,7 @@
 package fasthttp
 
 import (
+	"bufio"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -15,6 +16,240 @@ import (
 
 	"github.com/valyala/fasthttp/fasthttputil"
 )
+
+func TestClientHeaderCase(t *testing.T) {
+	ln := fasthttputil.NewInmemoryListener()
+	defer ln.Close()
+
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Write([]byte("HTTP/1.1 200 OK\r\n" +
+			"content-type: text/plain\r\n" +
+			"transfer-encoding: chunked\r\n\r\n" +
+			"24\r\nThis is the data in the first chunk \r\n" +
+			"1B\r\nand this is the second one \r\n" +
+			"0\r\n\r\n",
+		))
+	}()
+
+	c := &Client{
+		Dial: func(addr string) (net.Conn, error) {
+			return ln.Dial()
+		},
+		ReadTimeout: time.Millisecond * 10,
+
+		// Even without name normalizing we should parse headers correctly.
+		DisableHeaderNamesNormalizing: true,
+	}
+
+	code, body, err := c.Get(nil, "http://example.com")
+	if err != nil {
+		t.Error(err)
+	} else if code != 200 {
+		t.Errorf("expected status code 200 got %d", code)
+	} else if string(body) != "This is the data in the first chunk and this is the second one " {
+		t.Errorf("wrong body: %q", body)
+	}
+}
+
+func TestClientReadTimeout(t *testing.T) {
+	// This test is rather slow and increase the total test time
+	// from 2.5 seconds to 6.5 seconds.
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+
+	ln := fasthttputil.NewInmemoryListener()
+
+	timeout := false
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			if timeout {
+				time.Sleep(time.Minute)
+			} else {
+				timeout = true
+			}
+		},
+		Logger: &customLogger{}, // Don't print closed pipe errors.
+	}
+	go s.Serve(ln)
+
+	c := &HostClient{
+		ReadTimeout:               time.Second * 4,
+		MaxIdemponentCallAttempts: 1,
+		Dial: func(addr string) (net.Conn, error) {
+			return ln.Dial()
+		},
+	}
+
+	req := AcquireRequest()
+	res := AcquireResponse()
+
+	req.SetRequestURI("http://localhost")
+
+	// Setting Connection: Close will make the connection be
+	// returned to the pool.
+	req.SetConnectionClose()
+
+	if err := c.Do(req, res); err != nil {
+		t.Fatal(err)
+	}
+
+	ReleaseRequest(req)
+	ReleaseResponse(res)
+
+	done := make(chan struct{})
+	go func() {
+		req := AcquireRequest()
+		res := AcquireResponse()
+
+		req.SetRequestURI("http://localhost")
+		req.SetConnectionClose()
+
+		c.Do(req, res)
+
+		ReleaseRequest(req)
+		ReleaseResponse(res)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// This shouldn't take longer than the timeout times the number of requests it is going to try to do.
+		// Give it 2 seconds extra seconds just to be sure.
+	case <-time.After(c.ReadTimeout*time.Duration(c.MaxIdemponentCallAttempts) + time.Second*2):
+		t.Fatal("Client.ReadTimeout didn't work")
+	}
+}
+
+func TestClientUserAgent(t *testing.T) {
+	ln := fasthttputil.NewInmemoryListener()
+
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			ctx.Write([]byte("response"))
+		},
+	}
+	go s.Serve(ln)
+
+	userAgent := "I'm not fasthttp"
+	c := &Client{
+		Name: userAgent,
+		Dial: func(addr string) (net.Conn, error) {
+			return ln.Dial()
+		},
+	}
+	req := AcquireRequest()
+	res := AcquireResponse()
+
+	req.SetRequestURI("http://do.not.worry?we.are.going.to.make.fasthttp.great.again")
+
+	err := c.Do(req, res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ua := string(req.Header.UserAgent()); ua != userAgent {
+		t.Fatalf("User-Agent defers %s <> %s", ua, userAgent)
+	}
+}
+
+func TestClientDoWithCustomHeaders(t *testing.T) {
+	// make sure that the client sends all the request headers and body.
+	ln := fasthttputil.NewInmemoryListener()
+	c := &Client{
+		Dial: func(addr string) (net.Conn, error) {
+			return ln.Dial()
+		},
+	}
+
+	uri := "/foo/bar/baz?a=b&cd=12"
+	headers := map[string]string{
+		"Foo":          "bar",
+		"Host":         "xxx.com",
+		"Content-Type": "asdfsdf",
+		"a-b-c-d-f":    "",
+	}
+	body := "request body"
+
+	ch := make(chan error)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			ch <- fmt.Errorf("cannot accept client connection: %s", err)
+			return
+		}
+		br := bufio.NewReader(conn)
+
+		var req Request
+		if err = req.Read(br); err != nil {
+			ch <- fmt.Errorf("cannot read client request: %s", err)
+			return
+		}
+		if string(req.Header.Method()) != "POST" {
+			ch <- fmt.Errorf("unexpected request method: %q. Expecting %q", req.Header.Method(), "POST")
+			return
+		}
+		reqURI := req.RequestURI()
+		if string(reqURI) != uri {
+			ch <- fmt.Errorf("unexpected request uri: %q. Expecting %q", reqURI, uri)
+			return
+		}
+		for k, v := range headers {
+			hv := req.Header.Peek(k)
+			if string(hv) != v {
+				ch <- fmt.Errorf("unexpected value for header %q: %q. Expecting %q", k, hv, v)
+				return
+			}
+		}
+		cl := req.Header.ContentLength()
+		if cl != len(body) {
+			ch <- fmt.Errorf("unexpected content-length %d. Expecting %d", cl, len(body))
+			return
+		}
+		reqBody := req.Body()
+		if string(reqBody) != body {
+			ch <- fmt.Errorf("unexpected request body: %q. Expecting %q", reqBody, body)
+			return
+		}
+
+		var resp Response
+		bw := bufio.NewWriter(conn)
+		if err = resp.Write(bw); err != nil {
+			ch <- fmt.Errorf("cannot send response: %s", err)
+			return
+		}
+		if err = bw.Flush(); err != nil {
+			ch <- fmt.Errorf("cannot flush response: %s", err)
+			return
+		}
+
+		ch <- nil
+	}()
+
+	var req Request
+	req.Header.SetMethod("POST")
+	req.SetRequestURI(uri)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	req.SetBodyString(body)
+
+	var resp Response
+
+	err := c.DoTimeout(&req, &resp, time.Second)
+	if err != nil {
+		t.Fatalf("error when doing request: %s", err)
+	}
+
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timeout")
+	}
+}
 
 func TestPipelineClientDoSerial(t *testing.T) {
 	testPipelineClientDoConcurrent(t, 1, 0, 0)
@@ -466,7 +701,6 @@ func TestHostClientMultipleAddrs(t *testing.T) {
 }
 
 func TestClientFollowRedirects(t *testing.T) {
-	addr := "127.0.0.1:55234"
 	s := &Server{
 		Handler: func(ctx *RequestCtx) {
 			switch string(ctx.Path()) {
@@ -483,10 +717,7 @@ func TestClientFollowRedirects(t *testing.T) {
 			}
 		},
 	}
-	ln, err := net.Listen("tcp4", addr)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
+	ln := fasthttputil.NewInmemoryListener()
 
 	serverStopCh := make(chan struct{})
 	go func() {
@@ -496,9 +727,15 @@ func TestClientFollowRedirects(t *testing.T) {
 		close(serverStopCh)
 	}()
 
-	uri := fmt.Sprintf("http://%s/foo", addr)
+	c := &HostClient{
+		Addr: "xxx",
+		Dial: func(addr string) (net.Conn, error) {
+			return ln.Dial()
+		},
+	}
+
 	for i := 0; i < 10; i++ {
-		statusCode, body, err := GetTimeout(nil, uri, time.Second)
+		statusCode, body, err := c.GetTimeout(nil, "http://xxx/foo", time.Second)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
@@ -510,9 +747,8 @@ func TestClientFollowRedirects(t *testing.T) {
 		}
 	}
 
-	uri = fmt.Sprintf("http://%s/aaab/sss", addr)
 	for i := 0; i < 10; i++ {
-		statusCode, body, err := Get(nil, uri)
+		statusCode, body, err := c.Get(nil, "http://xxx/aaab/sss")
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
@@ -526,52 +762,44 @@ func TestClientFollowRedirects(t *testing.T) {
 }
 
 func TestClientGetTimeoutSuccess(t *testing.T) {
-	addr := "127.0.0.1:56889"
-	s := startEchoServer(t, "tcp", addr)
+	s := startEchoServer(t, "tcp", "127.0.0.1:")
 	defer s.Stop()
 
-	addr = "http://" + addr
-	testClientGetTimeoutSuccess(t, &defaultClient, addr, 100)
+	testClientGetTimeoutSuccess(t, &defaultClient, "http://"+s.Addr(), 100)
 }
 
 func TestClientGetTimeoutSuccessConcurrent(t *testing.T) {
-	addr := "127.0.0.1:56989"
-	s := startEchoServer(t, "tcp", addr)
+	s := startEchoServer(t, "tcp", "127.0.0.1:")
 	defer s.Stop()
 
-	addr = "http://" + addr
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			testClientGetTimeoutSuccess(t, &defaultClient, addr, 100)
+			testClientGetTimeoutSuccess(t, &defaultClient, "http://"+s.Addr(), 100)
 		}()
 	}
 	wg.Wait()
 }
 
 func TestClientDoTimeoutSuccess(t *testing.T) {
-	addr := "127.0.0.1:63897"
-	s := startEchoServer(t, "tcp", addr)
+	s := startEchoServer(t, "tcp", "127.0.0.1:")
 	defer s.Stop()
 
-	addr = "http://" + addr
-	testClientDoTimeoutSuccess(t, &defaultClient, addr, 100)
+	testClientDoTimeoutSuccess(t, &defaultClient, "http://"+s.Addr(), 100)
 }
 
 func TestClientDoTimeoutSuccessConcurrent(t *testing.T) {
-	addr := "127.0.0.1:63898"
-	s := startEchoServer(t, "tcp", addr)
+	s := startEchoServer(t, "tcp", "127.0.0.1:")
 	defer s.Stop()
 
-	addr = "http://" + addr
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			testClientDoTimeoutSuccess(t, &defaultClient, addr, 100)
+			testClientDoTimeoutSuccess(t, &defaultClient, "http://"+s.Addr(), 100)
 		}()
 	}
 	wg.Wait()
@@ -841,16 +1069,13 @@ func (r *singleReadConn) Close() error {
 }
 
 func TestClientHTTPSInvalidServerName(t *testing.T) {
-	addrHTTPS := "127.0.0.1:57794"
-	sHTTPS := startEchoServerTLS(t, "tcp", addrHTTPS)
+	sHTTPS := startEchoServerTLS(t, "tcp", "127.0.0.1:")
 	defer sHTTPS.Stop()
 
 	var c Client
 
-	addr := "https://" + addrHTTPS
-
 	for i := 0; i < 10; i++ {
-		_, _, err := c.GetTimeout(nil, addr, time.Second)
+		_, _, err := c.GetTimeout(nil, "https://"+sHTTPS.Addr(), time.Second)
 		if err == nil {
 			t.Fatalf("expecting TLS error")
 		}
@@ -858,12 +1083,10 @@ func TestClientHTTPSInvalidServerName(t *testing.T) {
 }
 
 func TestClientHTTPSConcurrent(t *testing.T) {
-	addrHTTP := "127.0.0.1:56793"
-	sHTTP := startEchoServer(t, "tcp", addrHTTP)
+	sHTTP := startEchoServer(t, "tcp", "127.0.0.1:")
 	defer sHTTP.Stop()
 
-	addrHTTPS := "127.0.0.1:56794"
-	sHTTPS := startEchoServerTLS(t, "tcp", addrHTTPS)
+	sHTTPS := startEchoServerTLS(t, "tcp", "127.0.0.1:")
 	defer sHTTPS.Stop()
 
 	c := &Client{
@@ -875,9 +1098,9 @@ func TestClientHTTPSConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
-		addr := "http://" + addrHTTP
+		addr := "http://" + sHTTP.Addr()
 		if i&1 != 0 {
-			addr = "https://" + addrHTTPS
+			addr = "https://" + sHTTPS.Addr()
 		}
 		go func() {
 			defer wg.Done()
@@ -891,10 +1114,9 @@ func TestClientHTTPSConcurrent(t *testing.T) {
 func TestClientManyServers(t *testing.T) {
 	var addrs []string
 	for i := 0; i < 10; i++ {
-		addr := fmt.Sprintf("127.0.0.1:%d", 56904+i)
-		s := startEchoServer(t, "tcp", addr)
+		s := startEchoServer(t, "tcp", "127.0.0.1:")
 		defer s.Stop()
-		addrs = append(addrs, addr)
+		addrs = append(addrs, s.Addr())
 	}
 
 	var wg sync.WaitGroup
@@ -911,29 +1133,24 @@ func TestClientManyServers(t *testing.T) {
 }
 
 func TestClientGet(t *testing.T) {
-	addr := "127.0.0.1:56789"
-	s := startEchoServer(t, "tcp", addr)
+	s := startEchoServer(t, "tcp", "127.0.0.1:")
 	defer s.Stop()
 
-	addr = "http://" + addr
-	testClientGet(t, &defaultClient, addr, 100)
+	testClientGet(t, &defaultClient, "http://"+s.Addr(), 100)
 }
 
 func TestClientPost(t *testing.T) {
-	addr := "127.0.0.1:56798"
-	s := startEchoServer(t, "tcp", addr)
+	s := startEchoServer(t, "tcp", "127.0.0.1:")
 	defer s.Stop()
 
-	addr = "http://" + addr
-	testClientPost(t, &defaultClient, addr, 100)
+	testClientPost(t, &defaultClient, "http://"+s.Addr(), 100)
 }
 
 func TestClientConcurrent(t *testing.T) {
-	addr := "127.0.0.1:55780"
-	s := startEchoServer(t, "tcp", addr)
+	s := startEchoServer(t, "tcp", "127.0.0.1:")
 	defer s.Stop()
 
-	addr = "http://" + addr
+	addr := "http://" + s.Addr()
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -1123,6 +1340,10 @@ func (s *testEchoServer) Stop() {
 	}
 }
 
+func (s *testEchoServer) Addr() string {
+	return s.ln.Addr().String()
+}
+
 func startEchoServerTLS(t *testing.T, network, addr string) *testEchoServer {
 	return startEchoServerExt(t, network, addr, true)
 }
@@ -1163,6 +1384,7 @@ func startEchoServerExt(t *testing.T, network, addr string, isTLS bool) *testEch
 				ctx.PostArgs().WriteTo(ctx)
 			}
 		},
+		Logger: &customLogger{}, // Ignore log output.
 	}
 	ch := make(chan struct{})
 	go func() {

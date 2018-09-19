@@ -22,11 +22,15 @@ var (
 
 	strResponseContinue = []byte("HTTP/1.1 100 Continue\r\n\r\n")
 
-	strGet    = []byte("GET")
-	strHead   = []byte("HEAD")
-	strPost   = []byte("POST")
-	strPut    = []byte("PUT")
-	strDelete = []byte("DELETE")
+	strGet     = []byte("GET")
+	strHead    = []byte("HEAD")
+	strPost    = []byte("POST")
+	strPut     = []byte("PUT")
+	strDelete  = []byte("DELETE")
+	strConnect = []byte("CONNECT")
+	strOptions = []byte("OPTIONS")
+	strTrace   = []byte("TRACE")
+	strPatch   = []byte("PATCH")
 
 	strExpect           = []byte("Expect")
 	strConnection       = []byte("Connection")
@@ -54,6 +58,7 @@ var (
 	strCookiePath     = []byte("path")
 	strCookieHTTPOnly = []byte("HttpOnly")
 	strCookieSecure   = []byte("secure")
+	strCookieMaxAge   = []byte("max-age")
 
 	strClose               = []byte("close")
 	strGzip                = []byte("gzip")
@@ -68,4 +73,6 @@ var (
 	strMultipartFormData   = []byte("multipart/form-data")
 	strBoundary            = []byte("boundary")
 	strBytes               = []byte("bytes")
+	strTextSlash           = []byte("text/")
+	strApplicationSlash    = []byte("application/")
 )
